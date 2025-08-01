@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>여행 일정 플래너</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/drag-drop-touch@1.3.1/DragDropTouch.js"></script>
+    <style>
+        body {
+            touch-action: manipulation;
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f5f4;
+            color: #1c1917;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+            box-sizing: border-box;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        .container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            width: 100%;
+            max-width: 1400px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            table-layout: fixed;
+        }
+
+        th, td {
+            padding: 8px 4px;
+            text-align: center;
+            border: 1px solid #e7e5e4;
+            font-size: 0.75rem;
+            vertical-align: middle;
+        }
+
+        td:not(:first-child) {
+            cursor: pointer;
+            transition: background-color 0.1s ease;
+        }
+
+        td:not(:first-child):hover {
+            background-color: #f5f5f4;
+        }
+
+        td.cell-selected {
+            background-color: #a7f3d0 !important;
+        }
+
+        td.drag-over {
+            border: 2px dashed #2563eb;
+        }
+
+        th {
+            background-color: #fafaf9;
+            font-weight: 600;
+            color: #57534e;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            font-size: 0.7rem;
+            white-space: nowrap;
+        }
+
+        td:first-child {
+            font-weight: bold;
+            color: #78716c;
+        }
+
+        .highlight-cell {
+            font-weight: 600;
+            border-radius: 4px;
+            padding: 4px 6px;
+            display: inline-block;
+            font-size: 0.7rem;
+            color: #1c1917;
+            white-space: normal;
+            line-height: 1.3;
+            cursor: grab;
+        }
+
+        .highlight-cell:active {
+            cursor: grabbing;
+        }
+
+        .highlight-cell.dragging {
+            opacity: 0.5;
+        }
+
+        .transport-icon {
+            font-size: 1rem;
+            line-height: 1;
+            color: #78716c;
+        }
+
+        /* [수정] .flight-icon -> .transport-icon */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+
+        .modal-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-content {
+            background-color: #ffffff;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            display: flex; /* Flexbox 레이아웃으로 변경 */
+            flex-direction: column; /* 세로 방향으로 아이템 배치 */
+            max-height: 85vh; /* 모달의 최대 높이 지정 */
+            padding: 1.5rem;
+        }
+
+
+        .modal-body {
+            overflow-y: auto; /* 내용이 길어지면 세로 스크롤 생성 */
+            padding: 0 0.5rem; /* 스크롤바가 내용 가리지 않게 패딩 추가 */
+            margin: 0 -0.5rem;
+        }
+
+        /* [추가] 모달의 고정된 하단 버튼 영역 */
+        .modal-footer {
+            margin-top: auto; /* 항상 아래에 붙도록 설정 */
+            padding-top: 1rem;
+            border-top: 1px solid #e7e5e4;
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        /* [수정] 기존 .color-picker 스타일은 지우고 아래 코드로 교체 */
+        .color-picker {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); /* 화면 크기에 맞게 열 개수 자동 조절 */
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .modal-title {
+            color: #1c1917;
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
+
+        .modal-description {
+            color: #57534e;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .form-label {
+            display: block;
+            text-align: left;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #57534e;
+        }
+
+        .form-input {
+            width: 100%;
+            text-align: left;
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #d6d3d1;
+            background-color: #fafaf9;
+            color: #1c1917;
+            margin-bottom: 1rem;
+        }
+
+        .color-option {
+            width: 28px; /* 크기 줄임 */
+            height: 28px; /* 크기 줄임 */
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .color-option.selected {
+            border-color: #1c1917;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            filter: brightness(0.95);
+        }
+
+        .btn-primary {
+            background-color: #2563eb;
+            color: white;
+        }
+
+        .btn-danger {
+            background-color: #dc2626;
+            color: white;
+        }
+
+        .btn-secondary {
+            background-color: #a8a29e;
+            color: white;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .transport-icon-picker {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .icon-option {
+            font-size: 1.5rem;
+            background-color: #fafaf9;
+            border: 2px solid #e7e5e4;
+            border-radius: 8px;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .icon-option.selected {
+            border-color: #2563eb;
+            background-color: #dbeafe;
+        }
+
+        #schedule-container table tbody {
+            background-color: #ffffff;
+            background-image: linear-gradient(
+                    to bottom,
+                    rgba(156, 163, 175, 0.15) 0%,   /* 밤/새벽 (시작) */
+                    rgba(190, 207, 250, 0.26) 20%,  /* 오전 5시까지 밤 색상 유지 */
+                    rgba(227, 249, 255, 0.3) 35%,    /* 오전 8시까지 서서히 일출 */
+                    rgba(255, 235, 179, 0.2) 75%,    /* 오후 4시부터 서서히 일몰 */
+                    rgba(190, 207, 250, 0.35) 90%,  /* 오후 7시 이후 밤 색상 */
+                    rgba(156, 163, 175, 0.15) 100%
+            );
+        }
+
+        /* 밝은 배경에 맞춰 기본 글씨색 설정 */
+        #schedule-container table tbody td {
+            color: #374151;
+        }
+
+        /* 밝은 배경에 맞춰 기본 글씨색 설정 */
+        #schedule-container table tbody td {
+            color: #374151; /* 어두운 회색 */
+        }
+
+        @media screen and (max-width: 768px) {
+            table {
+                min-width: auto;
+            }
+
+            th, td {
+                font-size: 0.65rem;
+                padding: 5px 2px;
+                word-break: break-all;
+            }
+
+            .highlight-cell {
+                font-size: 0.6rem;
+                padding: 2px 3px;
+                line-height: 1.2;
+            }
+
+            .transport-icon {
+                font-size: 0.8rem;
+            }
+
+            .date-text {
+                font-size: 0.5rem;
+            }
+
+            .modal-content {
+                padding: 1.5rem;
+            }
+
+            .modal-title {
+                font-size: 1.25rem;
+            }
+
+            .btn {
+                padding: 0.6rem 1rem;
+                font-size: 0.9rem;
+            }
+
+            .icon-option {
+                width: 42px;
+                height: 42px;
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div id="choice-screen" class="modal-overlay hidden">
+    <div class="modal-content">
+        <h2 class="modal-title">여행 플래너 시작하기</h2>
+        <p class="modal-description">새로운 여행 일정을 만들거나<br>이전에 내보낸 HTML 파일을 열어주세요.</p>
+        <div class="flex flex-col gap-4">
+            <button id="choice-new-planner-btn" class="btn btn-primary w-full">새 플래너 만들기</button>
+            <button id="choice-open-html-btn" class="btn btn-secondary w-full">HTML 파일 열기</button>
+        </div>
+    </div>
+</div>
+
+<div id="load-confirm-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <h2 class="modal-title">저장된 일정 발견 💾</h2>
+        <p class="modal-description">이전에 작업하던 일정을 불러오시겠습니까?</p>
+        <div class="flex justify-center gap-4">
+            <button id="load-cancel-btn" class="btn btn-secondary">취소</button>
+            <button id="load-confirm-btn" class="btn btn-primary">불러오기</button>
+        </div>
+    </div>
+</div>
+
+<div id="start-date-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <h2 class="modal-title">여행 시작일 선택</h2>
+        <p class="modal-description">1일차로 지정할 날짜를 선택해주세요.</p>
+        <input type="date" id="start-date-picker" class="form-input">
+        <button id="start-btn" class="btn btn-primary w-full">일정표 만들기</button>
+    </div>
+</div>
+
+<div class="container hidden">
+    <div class="flex justify-between items-center mb-4 flex-wrap gap-y-4">
+        <h1 class="text-2xl font-bold text-stone-800">여행 일정 플래너</h1>
+        <div class="flex items-center gap-2 flex-wrap">
+            <button id="add-day-btn" class="btn btn-secondary">⊕ 일차 추가</button>
+            <button id="remove-day-btn" class="btn btn-danger">⊖ 일차 제거</button>
+            <button id="open-html-btn" class="btn btn-secondary">HTML 열기</button>
+            <button id="export-btn" class="btn btn-primary">HTML 내보내기</button>
+        </div>
+    </div>
+    <div id="schedule-container"></div>
+</div>
+
+<div id="edit-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h2 id="modal-title" class="modal-title">일정 편집</h2>
+
+        <div class="modal-body">
+            <div>
+                <label for="event-text" class="form-label">내용</label>
+                <textarea id="event-text" class="form-input" rows="3" placeholder="예: 뮤지엄 방문"></textarea>
+            </div>
+            <div>
+                <label class="form-label">배경색</label>
+                <div id="color-picker" class="color-picker"></div>
+            </div>
+            <div>
+                <label class="form-label">아이콘</label>
+                <div id="icon-picker" class="transport-icon-picker">
+                    <button class="icon-option" data-icon="✈️">✈️</button>
+                    <button class="icon-option" data-icon="🚗">🚗</button>
+                    <button class="icon-option" data-icon="🚢">🚢</button>
+                    <button class="icon-option" data-icon="🚂">🚂</button>
+                    <button class="icon-option" data-icon="🚌">🚌</button>
+                    <button class="icon-option" data-icon="🚇">🚇</button>
+                </div>
+            </div>
+            <div>
+                <label for="map-search-input" class="form-label">구글 지도 위치</label>
+                <div class="flex gap-2 mb-2">
+                    <input type="text" id="map-search-input" class="form-input !mb-0" placeholder="예: 에펠탑">
+                    <button id="map-search-btn" class="btn btn-secondary flex-shrink-0">검색</button>
+                </div>
+                <div id="gmap-container" class="hidden">
+                    <iframe id="gmap-iframe" class="w-full h-48 border-0 rounded-lg"
+                            src="https://maps.google.com/maps?q=대한민국+서울&output=embed" allowfullscreen="" loading="lazy">
+                    </iframe>
+                </div>
+            </div>
+            <div class="mt-4">
+                <label for="memo-text-edit" class="form-label">메모</label>
+                <textarea id="memo-text-edit" class="form-input" rows="4" placeholder="세부 계획, 준비물 등을 기록하세요..."></textarea>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button id="delete-btn" class="btn btn-danger">삭제</button>
+            <div class="flex gap-4">
+                <button id="cancel-btn" class="btn btn-secondary">취소</button>
+                <button id="save-btn" class="btn btn-primary">확인</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="io-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h2 id="io-modal-title" class="modal-title"></h2>
+        <p id="io-modal-description" class="modal-description"></p>
+        <textarea id="io-textarea"
+                  class="w-full h-64 p-2 border border-stone-300 rounded-lg font-mono text-xs bg-stone-50"></textarea>
+        <div class="flex justify-end gap-4 mt-4">
+            <button id="io-action-btn" class="btn btn-primary"></button>
+            <button id="io-close-btn" class="btn btn-secondary">닫기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const HOURS = 24;
+        const COLORS = [
+            '#fecaf5', '#fed7aa', '#fde68a', '#c6f99d', '#bbf7d0',
+            '#a7f3d0', '#bae6fd', '#bfdbfe', '#e1d6fe', '#e4e4e7',
+            '#ffa1a1', '#e9a4fa', '#c4b5fd', '#a5b4fc', '#93c5fd'
+        ];
+        const DEFAULT_COLOR = '#d1d5db';
+        const STORAGE_KEY = 'travelPlannerState';
+
+        let appState = {dates: [], schedule: {}};
+        let isSelecting = false;
+        let startCell = null;
+        let selectedCells = new Set();
+        let draggedCellId = null;
+
+        const container = document.querySelector('.container');
+        const scheduleContainer = document.getElementById('schedule-container');
+        const choiceScreen = document.getElementById('choice-screen');
+        const loadConfirmModal = document.getElementById('load-confirm-modal');
+        const startDateModal = document.getElementById('start-date-modal');
+        const editModal = document.getElementById('edit-modal');
+        const ioModal = document.getElementById('io-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const eventTextInput = document.getElementById('event-text');
+        const colorPicker = document.getElementById('color-picker');
+        const iconPicker = document.getElementById('icon-picker');
+        const memoTextEdit = document.getElementById('memo-text-edit');
+        const ioModalTitle = document.getElementById('io-modal-title');
+        const ioModalDescription = document.getElementById('io-modal-description');
+        const ioTextarea = document.getElementById('io-textarea');
+        const ioActionBtn = document.getElementById('io-action-btn');
+        const addDayBtn = document.getElementById('add-day-btn');
+        const removeDayBtn = document.getElementById('remove-day-btn');
+        const startDatePicker = document.getElementById('start-date-picker');
+        const startBtn = document.getElementById('start-btn');
+        const gmapIframe = document.getElementById('gmap-iframe');
+        const mapSearchInput = document.getElementById('map-search-input');
+        const gmapContainer = document.getElementById('gmap-container');
+
+        const saveState = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+        const loadState = () => JSON.parse(localStorage.getItem(STORAGE_KEY));
+        const clearSavedState = () => localStorage.removeItem(STORAGE_KEY);
+
+        const getLocalDateString = (date) => {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        };
+
+
+        function rgbToHex(rgb) {
+            if (!rgb || !rgb.includes('rgb')) return rgb;
+            try {
+                const [r, g, b] = rgb.match(/\d+/g).map(Number);
+                return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+            } catch (e) {
+                return '#d1d5db';
+            }
+        }
+
+        const renderCell = (id) => {
+            const cell = document.getElementById(id);
+            if (!cell) return;
+            const data = appState.schedule[id];
+            let contentHTML = '';
+            if (data && (data.text || data.color || data.icon || data.mapUrl)) {
+                let parts = [];
+                if (data.icon) {
+                    parts.push(`<span class="transport-icon text-base">${data.icon}</span>`);
+                }
+                if (data.text || data.color) {
+                    const bgColor = data.color || 'transparent';
+                    const memoAttr = data.memo ? `data-memo="${data.memo.replace(/"/g, '&quot;')}"` : '';
+                    parts.push(`<span class="highlight-cell" draggable="true" data-cell-id="${id}" ${memoAttr} style="background-color:${bgColor};">${(data.text || '').replace(/\n/g, '<br>')}</span>`);
+                }
+                contentHTML = parts.join(' ');
+            }
+            cell.innerHTML = contentHTML;
+        };
+
+        const createTable = () => {
+            scheduleContainer.innerHTML = '';
+            const daysPerTable = 7;
+            for (let i = 0; i < appState.dates.length; i += daysPerTable) {
+                const dateChunk = appState.dates.slice(i, i + daysPerTable);
+                const dayOffset = i;
+                const table = document.createElement('table');
+
+                const thead = table.createTHead();
+                const headerRow = thead.insertRow();
+                headerRow.innerHTML = '<th>시간</th>';
+                dateChunk.forEach((d, index) => {
+                    const globalDayIndex = dayOffset + index;
+                    const headerText = `${d.day} <br> ${d.date.replace(' (', '(')}`;
+                    headerRow.innerHTML += `<th class="day-header" data-day-index="${globalDayIndex}"><span>${headerText}</span></th>`;
+                });
+                const tbody = table.createTBody();
+                for (let hour = 0; hour < HOURS; hour++) {
+                    const bodyRow = tbody.insertRow();
+                    bodyRow.innerHTML = `<td>${hour}</td>`;
+                    dateChunk.forEach((d, index) => {
+                        const globalDayIndex = dayOffset + index;
+                        bodyRow.innerHTML += `<td id="cell-${hour}-${globalDayIndex}" data-hour="${hour}" data-day="${globalDayIndex}"></td>`;
+                    });
+                }
+                scheduleContainer.appendChild(table);
+            }
+            if (appState.schedule) {
+                Object.keys(appState.schedule).forEach(id => renderCell(id));
+            }
+        };
+
+        const createColorPicker = () => {
+            colorPicker.innerHTML = '';
+            COLORS.forEach(color => {
+                const colorOption = document.createElement('div');
+                colorOption.className = 'color-option';
+                colorOption.style.backgroundColor = color;
+                colorOption.dataset.color = color;
+                colorPicker.appendChild(colorOption);
+            });
+        };
+
+        const clearSelection = () => {
+            selectedCells.forEach(id => document.getElementById(id)?.classList.remove('cell-selected'));
+            selectedCells.clear();
+        };
+
+        // 기존 closeModal 함수를 아래 코드로 교체하세요.
+        const closeModal = () => {
+            editModal.classList.remove('visible');
+            gmapContainer.classList.add('hidden'); // [추가] 모달을 닫을 때 지도 숨기기
+            clearSelection();
+        };
+
+        // 기존 openModal 함수를 아래 코드로 교체하세요.
+        const openModal = () => {
+            if (selectedCells.size === 0) return;
+            const isSingleCell = selectedCells.size === 1;
+            const firstCellId = selectedCells.values().next().value;
+            const data = isSingleCell ? (appState.schedule[firstCellId] || {}) : {};
+
+            modalTitle.textContent = isSingleCell ? '일정 편집' : `일괄 편집 (${selectedCells.size}개)`;
+            eventTextInput.value = data.text || '';
+
+            // [수정] 여러 항목을 선택해도 메모를 수정할 수 있도록 항상 활성화
+            memoTextEdit.value = data.memo || '';
+            memoTextEdit.disabled = false;
+
+            // [수정] 저장된 지도 URL이 있을 때만 지도를 보여줌
+            mapSearchInput.value = '';
+            if (data.mapUrl) {
+                gmapIframe.src = data.mapUrl;
+                gmapContainer.classList.remove('hidden');
+            } else {
+                gmapIframe.src = 'about:blank'; // 빈 페이지로 초기화
+                gmapContainer.classList.add('hidden');
+            }
+
+            document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
+            if (data.color) document.querySelector(`.color-option[data-color="${data.color}"]`)?.classList.add('selected');
+            document.querySelectorAll('.icon-option').forEach(opt => opt.classList.remove('selected'));
+            if (data.icon) document.querySelector(`.icon-option[data-icon="${data.icon}"]`)?.classList.add('selected');
+
+            editModal.classList.add('visible');
+        };
+
+        const highlightSelection = (endCell) => {
+            clearSelection();
+            if (!startCell || !endCell) return;
+            const startCoords = {r: parseInt(startCell.dataset.hour), c: parseInt(startCell.dataset.day)};
+            const endCoords = {r: parseInt(endCell.dataset.hour), c: parseInt(endCell.dataset.day)};
+            const r1 = Math.min(startCoords.r, endCoords.r), r2 = Math.max(startCoords.r, endCoords.r);
+            const c1 = Math.min(startCoords.c, endCoords.c), c2 = Math.max(startCoords.c, endCoords.c);
+            for (let r = r1; r <= r2; r++) {
+                for (let c = c1; c <= c2; c++) {
+                    const id = `cell-${r}-${c}`;
+                    document.getElementById(id)?.classList.add('cell-selected');
+                    selectedCells.add(id);
+                }
+            }
+        };
+
+        function parseHTMLToState(html) {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const newAppState = {dates: [], schedule: {}};
+            const container = doc.getElementById('schedule-container');
+            if (!container) throw new Error('ID가 "schedule-container"인 요소를 찾을 수 없습니다.');
+
+            const tables = container.querySelectorAll('table');
+            if (tables.length === 0) throw new Error('테이블을 찾을 수 없습니다.');
+
+            let year = new Date().getFullYear();
+            let firstMonthFound = null;
+
+            tables.forEach(table => {
+                // [수정] 헤더 분석 로직 강화
+                table.querySelectorAll('thead th:not(:first-child)').forEach((th) => {
+                    const span = th.querySelector('span');
+                    if (!span) return;
+
+                    const htmlContent = span.innerHTML; // <br> 태그를 포함한 HTML을 가져옴
+                    const parts = htmlContent.split('<br>').map(part => part.trim());
+                    if (parts.length < 2) return;
+
+                    const dayText = parts[0];
+                    const dateText = parts[1];
+                    const dateMatch = dateText.match(/(\d+\/\d+)\((\S+)\)/);
+
+                    if (dateMatch) {
+                        const monthDay = dateMatch[1];
+                        const month = parseInt(monthDay.split('/')[0], 10);
+                        const dayOfMonth = parseInt(monthDay.split('/')[1], 10);
+
+                        if (firstMonthFound === null) {
+                            firstMonthFound = month;
+                        } else if (month < firstMonthFound) {
+                            year++; // 해가 바뀌는 경우 (예: 12월 -> 1월)
+                        }
+                        firstMonthFound = month;
+
+                        const fullDate = `${year}-${String(month).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
+                        if (!newAppState.dates.some(d => d.fullDate === fullDate)) {
+                            newAppState.dates.push({ day: dayText, date: dateText, fullDate });
+                        }
+                    }
+                });
+
+                // 일정 데이터 분석 (기존과 동일하나, 안정성을 위해 td에서 직접 dayIndex를 가져오도록 수정)
+                table.querySelectorAll('tbody td[data-day]').forEach(td => {
+                    const dayIndex = td.dataset.day;
+                    const hour = td.dataset.hour;
+                    const cellId = `cell-${hour}-${dayIndex}`;
+
+                    const highlightCell = td.querySelector('.highlight-cell');
+                    const iconEl = td.querySelector('.transport-icon');
+                    if (highlightCell || iconEl) {
+                        const data = {text: '', color: null, icon: null, memo: '', mapUrl: ''};
+                        if (highlightCell) {
+                            data.text = highlightCell.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+                            data.color = rgbToHex(highlightCell.style.backgroundColor);
+                            data.memo = highlightCell.dataset.memo || '';
+                            data.mapUrl = highlightCell.dataset.mapUrl || '';
+                        }
+                        if (iconEl) data.icon = iconEl.textContent.trim();
+                        newAppState.schedule[cellId] = data;
+                    }
+                });
+            });
+
+            if (newAppState.dates.length === 0) throw new Error('HTML 헤더에서 유효한 날짜를 분석할 수 없습니다.');
+            return newAppState;
+        }
+
+        // --- 이벤트 리스너 ---
+        document.getElementById('load-confirm-btn').addEventListener('click', () => {
+            const savedState = loadState();
+            if (savedState) {
+                appState = savedState;
+                createTable();
+                loadConfirmModal.classList.remove('visible');
+                loadConfirmModal.classList.add('hidden');
+                container.classList.remove('hidden');
+            }
+        });
+
+        document.getElementById('load-cancel-btn').addEventListener('click', () => {
+            clearSavedState();
+            loadConfirmModal.classList.remove('visible');
+            loadConfirmModal.classList.add('hidden');
+            choiceScreen.classList.remove('hidden');
+            choiceScreen.classList.add('visible');
+        });
+
+        document.getElementById('choice-new-planner-btn').addEventListener('click', () => {
+            choiceScreen.classList.remove('visible');
+            choiceScreen.classList.add('hidden');
+            startDatePicker.value = getLocalDateString(new Date());
+            startDateModal.classList.remove('hidden');
+            startDateModal.classList.add('visible');
+        });
+
+        document.getElementById('choice-open-html-btn').addEventListener('click', () => {
+            choiceScreen.classList.remove('visible');
+            choiceScreen.classList.add('hidden');
+            document.getElementById('open-html-btn').click();
+        });
+
+        document.getElementById('map-search-btn').addEventListener('click', () => {
+            const query = mapSearchInput.value.trim();
+            if (query) {
+                gmapIframe.src = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=11&output=embed`;
+                gmapContainer.classList.remove('hidden'); // [추가] 검색 시 지도 컨테이너를 보이게 함
+            }
+        });
+
+        startBtn.addEventListener('click', () => {
+            const startDate = startDatePicker.value;
+            if (!startDate) {
+                alert('시작 날짜를 선택해주세요.');
+                return;
+            }
+            const date = new Date(startDate + 'T00:00:00');
+            appState.dates = [{
+                day: '1일차',
+                date: `${date.getMonth() + 1}/${date.getDate()} (${['일', '월', '화', '수', '목', '금', '토'][date.getDay()]})`,
+                fullDate: getLocalDateString(date)
+            }];
+            appState.schedule = {};
+            createTable();
+            saveState();
+            startDateModal.classList.remove('visible');
+            startDateModal.classList.add('hidden');
+            container.classList.remove('hidden');
+        });
+
+        addDayBtn.addEventListener('click', () => {
+            if (appState.dates.length === 0) return;
+            const lastDateInfo = appState.dates[appState.dates.length - 1];
+            const lastDate = new Date(lastDateInfo.fullDate + 'T00:00:00');
+            lastDate.setDate(lastDate.getDate() + 1);
+            const newDay = {
+                day: `${appState.dates.length + 1}일차`,
+                date: `${lastDate.getMonth() + 1}/${lastDate.getDate()} (${['일', '월', '화', '수', '목', '금', '토'][lastDate.getDay()]})`,
+                fullDate: getLocalDateString(lastDate)
+            };
+            appState.dates.push(newDay);
+            createTable();
+            saveState();
+        });
+
+        removeDayBtn.addEventListener('click', () => {
+            if (appState.dates.length > 0) {
+                if (confirm(`${appState.dates[appState.dates.length - 1].day}을(를) 삭제하시겠습니까?`)) {
+                    const dayIndex = appState.dates.length - 1;
+                    appState.dates.pop();
+                    const newSchedule = {};
+                    for (const cellId in appState.schedule) {
+                        const [_, hour, day] = cellId.split('-').map(Number);
+                        if (day < dayIndex) newSchedule[cellId] = appState.schedule[cellId];
+                    }
+                    appState.schedule = newSchedule;
+                    createTable();
+                    saveState();
+                }
+            }
+        });
+
+        document.getElementById('save-btn').addEventListener('click', () => {
+            const text = eventTextInput.value.trim();
+            const selectedColorEl = document.querySelector('.color-option.selected');
+            const selectedIconEl = document.querySelector('.icon-option.selected');
+            let color = selectedColorEl ? selectedColorEl.dataset.color : null;
+            const icon = selectedIconEl ? selectedIconEl.dataset.icon : null;
+            const memo = memoTextEdit.value.trim();
+            const mapUrl = gmapContainer.classList.contains('hidden') ? null : gmapIframe.src;
+
+            if (text && !color) color = DEFAULT_COLOR;
+
+            selectedCells.forEach(id => {
+                const existingData = appState.schedule[id] || {};
+                if (!text && !color && !icon && !memo && !mapUrl) {
+                    delete appState.schedule[id];
+                } else {
+                    const isSingleCellEdit = selectedCells.size === 1;
+                    // 내용/메모가 비어있을 때 기존 값을 유지하는 로직
+                    const newText = text || (isSingleCellEdit ? '' : existingData.text || '');
+                    const newMemo = memo || (isSingleCellEdit ? '' : existingData.memo || '');
+
+                    appState.schedule[id] = {
+                        text: newText,
+                        color: color || existingData.color,
+                        icon: icon,
+                        memo: newMemo,
+                        mapUrl: mapUrl
+                    };
+                }
+                renderCell(id);
+            });
+            saveState();
+            closeModal();
+        });
+
+        colorPicker.addEventListener('click', (e) => {
+            const target = e.target.closest('.color-option');
+            if (!target) return;
+
+            const isSelected = target.classList.contains('selected');
+            document.querySelectorAll('.color-option.selected').forEach(opt => opt.classList.remove('selected'));
+
+            if (!isSelected) {
+                target.classList.add('selected');
+            }
+        });
+
+        iconPicker.addEventListener('click', (e) => {
+            const target = e.target.closest('.icon-option');
+            if (target) {
+                if (target.classList.contains('selected')) target.classList.remove('selected');
+                else {
+                    document.querySelectorAll('.icon-option').forEach(opt => opt.classList.remove('selected'));
+                    target.classList.add('selected');
+                }
+            }
+        });
+
+        document.getElementById('delete-btn').addEventListener('click', () => {
+            selectedCells.forEach(id => {
+                delete appState.schedule[id];
+                renderCell(id);
+            });
+            saveState();
+            closeModal();
+        });
+
+        document.getElementById('cancel-btn').addEventListener('click', closeModal);
+
+        document.getElementById('open-html-btn').addEventListener('click', () => {
+            ioModal.classList.add('visible');
+            ioModalTitle.textContent = 'HTML 열기';
+            ioModalDescription.textContent = '이전에 내보낸 HTML 코드를 아래에 붙여넣고 버튼을 눌러주세요.';
+            ioTextarea.value = '';
+            ioTextarea.readOnly = false;
+            ioActionBtn.textContent = '붙여넣은 HTML 일정으로 열기';
+            ioActionBtn.onclick = () => {
+                const html = ioTextarea.value;
+                if (!html) {
+                    alert('붙여넣을 HTML 코드가 없습니다.');
+                    return;
+                }
+                try {
+                    appState = parseHTMLToState(html);
+                    createTable();
+                    saveState();
+                    ioModal.classList.remove('visible');
+                    container.classList.remove('hidden');
+                    startDateModal.classList.add('hidden');
+                } catch (e) {
+                    console.error("HTML Parsing Error:", e);
+                    alert('HTML을 분석하는 데 실패했습니다. 코드 형식을 확인해주세요.\n' + e.message);
+                }
+            };
+        });
+
+        mapSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // 기본 엔터 동작(줄바꿈 등) 방지
+                document.getElementById('map-search-btn').click();
+            }
+        });
+
+        // 기존의 'export-btn' 이벤트 리스너를 이 코드로 완전히 교체하세요.
+        document.getElementById('export-btn').addEventListener('click', () => {
+            // 1. 현재 스케줄 컨테이너를 복제하여 작업합니다.
+            const containerClone = scheduleContainer.cloneNode(true);
+
+            // 2. 복제된 HTML에서 불필요한 클래스나 ID를 제거하여 깨끗하게 만듭니다.
+            containerClone.querySelectorAll('td, th').forEach(el => {
+                el.removeAttribute('id');
+                el.classList.remove('cell-selected', 'drag-over');
+            });
+
+            // 3. 각 일정 요소에 메모와 지도 URL 데이터를 data-* 속성으로 확실하게 심어줍니다.
+            containerClone.querySelectorAll('.highlight-cell').forEach(el => {
+                const cellId = el.dataset.cellId;
+                const data = appState.schedule[cellId];
+                if (cellId && data) {
+                    // data-memo 속성 추가
+                    if (data.memo) {
+                        el.setAttribute('data-memo', data.memo);
+                    }
+                    // data-map-url 속성 추가 (가장 중요한 부분)
+                    if (data.mapUrl) {
+                        el.setAttribute('data-map-url', data.mapUrl);
+                    }
+                }
+            });
+
+            // 4. 최종적으로 내보낼 HTML 문서를 생성합니다.
+            // 앱의 주요 스타일을 그대로 포함하여 디자인이 깨지지 않도록 합니다.
+            const finalHTML = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>여행 일정</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; color: #1c1917; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; padding: 1rem; box-sizing: border-box; }
+        .container { background-color: #fff; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 1.5rem; width: 100%; max-width: 1400px; }
+        #schedule-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; margin-bottom: 2rem; }
+        table:last-child { margin-bottom: 0; }
+        th, td { padding: 8px 4px; text-align: center; border: 1px solid #e7e5e4; font-size: .75rem; vertical-align: middle; }
+        th { background-color: #fafaf9; font-weight: 600; color: #57534e; position: sticky; top: 0; z-index: 10; font-size: .7rem; white-space: nowrap; }
+        td:first-child { font-weight: 700; color: #78716c; }
+        tbody {
+            background-image: linear-gradient( to bottom, rgba(156, 163, 175, 0.15) 0%, rgba(190, 207, 250, 0.26) 20%, rgba(227, 249, 255, 0.3) 35%, rgba(255, 235, 179, 0.2) 75%, rgba(190, 207, 250, 0.35) 90%, rgba(156, 163, 175, 0.15) 100% );
+        }
+        tbody td { color: #374151; }
+        .highlight-cell { font-weight: 600; border-radius: 4px; padding: 4px 6px; display: inline-block; font-size: .7rem; color: #1c1917; white-space: normal; line-height: 1.3; vertical-align: middle; }
+        .transport-icon { font-size: 1rem; line-height: 1; color: #78716c; vertical-align: middle; margin-right: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 style="font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 1.5rem;">여행 일정</h1>
+        <div id="schedule-container">
+            ${containerClone.innerHTML}
+        </div>
+    </div>
+</body>
+</html>`;
+
+            // 5. 생성된 HTML을 모달 창에 띄워줍니다.
+            ioModal.classList.add('visible');
+            ioModalTitle.textContent = 'HTML 내보내기';
+            ioModalDescription.textContent = '아래 코드를 복사하여 파일에 저장하거나, 나중에 다시 열 때 사용하세요.';
+            ioTextarea.value = finalHTML;
+            ioTextarea.readOnly = true;
+            ioActionBtn.textContent = '클립보드에 복사';
+            ioActionBtn.onclick = () => {
+                ioTextarea.select();
+                navigator.clipboard.writeText(ioTextarea.value).then(() => alert('코드가 클립보드에 복사되었습니다!'), () => alert('복사에 실패했습니다.'));
+            };
+        });
+
+        document.getElementById('io-close-btn').addEventListener('click', () => ioModal.classList.remove('visible'));
+
+        scheduleContainer.addEventListener('mousedown', (e) => {
+            const cell = e.target.closest('td');
+            if (cell && cell.dataset.hour && !e.target.closest('.highlight-cell')) {
+                isSelecting = true;
+                clearSelection();
+                startCell = cell;
+                selectedCells.add(startCell.id);
+                startCell.classList.add('cell-selected');
+            }
+        });
+
+        scheduleContainer.addEventListener('click', (e) => {
+            const highlightCell = e.target.closest('.highlight-cell');
+            if (highlightCell && !isSelecting) {
+                clearSelection();
+                selectedCells.add(highlightCell.dataset.cellId);
+                openModal();
+            }
+        });
+
+        scheduleContainer.addEventListener('mouseover', (e) => {
+            const cell = e.target.closest('td');
+            if (isSelecting && cell && cell.dataset.hour) {
+                highlightSelection(cell);
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isSelecting) {
+                isSelecting = false;
+                if (selectedCells.size > 0) openModal();
+            }
+        });
+
+        scheduleContainer.addEventListener('dragstart', (e) => {
+            if (e.target.classList.contains('highlight-cell')) {
+                draggedCellId = e.target.dataset.cellId;
+                setTimeout(() => e.target.classList.add('dragging'), 0);
+            }
+        });
+
+        scheduleContainer.addEventListener('dragend', (e) => {
+            if (!draggedCellId) return;
+            const draggingElement = document.querySelector('.highlight-cell.dragging');
+            if (draggingElement) draggingElement.classList.remove('dragging');
+            draggedCellId = null;
+        });
+
+        scheduleContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const targetCell = e.target.closest('td');
+            if (targetCell && targetCell.dataset.hour) {
+                document.querySelectorAll('.drag-over').forEach(cell => cell.classList.remove('drag-over'));
+                targetCell.classList.add('drag-over');
+            }
+        });
+
+        scheduleContainer.addEventListener('dragleave', (e) => {
+            e.target.closest('td')?.classList.remove('drag-over');
+        });
+
+        scheduleContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            document.querySelectorAll('.drag-over').forEach(cell => cell.classList.remove('drag-over'));
+            const targetCell = e.target.closest('td');
+            if (targetCell && targetCell.dataset.hour && draggedCellId && targetCell.id !== draggedCellId) {
+                if (appState.schedule[targetCell.id]) {
+                    if (!confirm("이 칸에 이미 일정이 있습니다. 덮어쓰시겠습니까?")) return;
+                }
+                appState.schedule[targetCell.id] = appState.schedule[draggedCellId];
+                delete appState.schedule[draggedCellId];
+                renderCell(draggedCellId);
+                renderCell(targetCell.id);
+                saveState();
+            }
+        });
+
+        const initializeApp = () => {
+            createColorPicker();
+            try {
+                const savedState = loadState();
+                if (savedState && savedState.dates && savedState.dates.length > 0) {
+                    loadConfirmModal.classList.remove('hidden');
+                    loadConfirmModal.classList.add('visible');
+                } else {
+                    choiceScreen.classList.remove('hidden');
+                    choiceScreen.classList.add('visible');
+                }
+            } catch (e) {
+                console.error("저장 데이터 로딩 실패:", e);
+                clearSavedState();
+                choiceScreen.classList.remove('hidden');
+                choiceScreen.classList.add('visible');
+            }
+        };
+
+        initializeApp();
+    });
+</script>
+</body>
+</html>
