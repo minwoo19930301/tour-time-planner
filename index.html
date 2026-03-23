@@ -341,10 +341,10 @@
 <div id="choice-screen" class="modal-overlay hidden">
     <div class="modal-content">
         <h2 class="modal-title">여행 플래너 시작하기</h2>
-        <p class="modal-description">새로운 여행 일정을 만들거나<br>이전에 내보낸 HTML 파일을 열어주세요.</p>
+        <p class="modal-description">새로운 여행 일정을 만들거나<br>공유 링크를 열어주세요.</p>
         <div class="flex flex-col gap-4">
             <button id="choice-new-planner-btn" class="btn btn-primary w-full">새 플래너 만들기</button>
-            <button id="choice-open-html-btn" class="btn btn-secondary w-full">HTML 파일 열기</button>
+            <button id="choice-open-html-btn" class="btn btn-secondary w-full">공유 링크 열기</button>
         </div>
     </div>
 </div>
@@ -375,8 +375,8 @@
         <div class="flex items-center gap-2 flex-wrap">
             <button id="add-day-btn" class="btn btn-secondary">⊕ 일차 추가</button>
             <button id="remove-day-btn" class="btn btn-danger">⊖ 일차 제거</button>
-            <button id="open-html-btn" class="btn btn-secondary">HTML 열기</button>
-            <button id="export-btn" class="btn btn-primary">HTML 내보내기</button>
+            <button id="open-html-btn" class="btn btn-secondary">공유 링크 열기</button>
+            <button id="export-btn" class="btn btn-primary">공유 링크</button>
         </div>
     </div>
     <div id="schedule-container"></div>
@@ -456,6 +456,8 @@
         ];
         const DEFAULT_COLOR = '#d1d5db';
         const STORAGE_KEY = 'travelPlannerState';
+        const SHARE_PARAM_KEY = 'plan';
+        const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
         let appState = {dates: [], schedule: {}};
         let isSelecting = false;
@@ -487,8 +489,28 @@
         const mapSearchInput = document.getElementById('map-search-input');
         const gmapContainer = document.getElementById('gmap-container');
 
+        const showOverlay = (element) => {
+            element.classList.remove('hidden');
+            element.classList.add('visible');
+        };
+
+        const hideOverlay = (element) => {
+            element.classList.remove('visible');
+            element.classList.add('hidden');
+        };
+
+        const showPlanner = () => {
+            hideOverlay(choiceScreen);
+            hideOverlay(loadConfirmModal);
+            hideOverlay(startDateModal);
+            container.classList.remove('hidden');
+        };
+
         const saveState = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
-        const loadState = () => JSON.parse(localStorage.getItem(STORAGE_KEY));
+        const loadState = () => {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? normalizeAppState(JSON.parse(raw)) : null;
+        };
         const clearSavedState = () => localStorage.removeItem(STORAGE_KEY);
 
         const getLocalDateString = (date) => {
@@ -498,6 +520,206 @@
             return `${yyyy}-${mm}-${dd}`;
         };
 
+        const buildDateInfo = (fullDate, index, existing = {}) => {
+            const date = new Date(`${fullDate}T00:00:00`);
+            if (Number.isNaN(date.getTime())) {
+                throw new Error(`유효하지 않은 날짜입니다: ${fullDate}`);
+            }
+
+            return {
+                day: existing.day || `${index + 1}일차`,
+                date: existing.date || `${date.getMonth() + 1}/${date.getDate()} (${DAY_NAMES[date.getDay()]})`,
+                fullDate
+            };
+        };
+
+        const normalizeScheduleEntry = (entry = {}) => ({
+            text: entry.text || '',
+            color: entry.color || null,
+            icon: entry.icon || null,
+            memo: entry.memo || '',
+            mapUrl: entry.mapUrl || ''
+        });
+
+        const normalizeAppState = (state = {}) => {
+            const normalizedDates = Array.isArray(state.dates)
+                ? state.dates.map((item, index) => {
+                    if (!item) return null;
+                    if (typeof item === 'string') {
+                        return buildDateInfo(item, index);
+                    }
+                    if (typeof item.fullDate === 'string') {
+                        return buildDateInfo(item.fullDate, index, item);
+                    }
+                    return null;
+                }).filter(Boolean)
+                : [];
+
+            const normalizedSchedule = {};
+            if (state.schedule && typeof state.schedule === 'object') {
+                Object.entries(state.schedule).forEach(([cellId, entry]) => {
+                    if (/^cell-\d+-\d+$/.test(cellId)) {
+                        normalizedSchedule[cellId] = normalizeScheduleEntry(entry);
+                    }
+                });
+            }
+
+            return {
+                dates: normalizedDates,
+                schedule: normalizedSchedule
+            };
+        };
+
+        const bytesToBase64Url = (bytes) => {
+            let binary = '';
+            const chunkSize = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+            }
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        };
+
+        const base64UrlToBytes = (value) => {
+            const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+            const padding = '='.repeat((4 - (normalized.length % 4 || 4)) % 4);
+            const binary = atob(normalized + padding);
+            return Uint8Array.from(binary, char => char.charCodeAt(0));
+        };
+
+        const serializeShareState = (state) => {
+            const payload = {
+                v: 1,
+                d: state.dates.map(({fullDate}) => fullDate),
+                s: Object.entries(state.schedule || {}).reduce((entries, [cellId, entry]) => {
+                    const match = cellId.match(/^cell-(\d+)-(\d+)$/);
+                    if (!match) return entries;
+
+                    const packedEntry = [
+                        Number(match[1]),
+                        Number(match[2]),
+                        entry.text || '',
+                        entry.color || '',
+                        entry.icon || '',
+                        entry.memo || '',
+                        entry.mapUrl || ''
+                    ];
+
+                    while (packedEntry.length > 2 && !packedEntry[packedEntry.length - 1]) {
+                        packedEntry.pop();
+                    }
+
+                    entries.push(packedEntry);
+                    return entries;
+                }, [])
+            };
+
+            return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+        };
+
+        const deserializeShareState = (encodedState) => {
+            let payload;
+
+            try {
+                const json = new TextDecoder().decode(base64UrlToBytes(encodedState));
+                payload = JSON.parse(json);
+            } catch (error) {
+                throw new Error('공유 링크의 일정 데이터를 읽을 수 없습니다.');
+            }
+
+            if (!payload || payload.v !== 1 || !Array.isArray(payload.d) || !Array.isArray(payload.s)) {
+                throw new Error('지원하지 않는 공유 링크 형식입니다.');
+            }
+
+            const schedule = {};
+            payload.s.forEach((entry) => {
+                if (!Array.isArray(entry) || entry.length < 2) return;
+
+                const [hour, day, text = '', color = '', icon = '', memo = '', mapUrl = ''] = entry;
+                if (!Number.isInteger(hour) || !Number.isInteger(day)) return;
+
+                schedule[`cell-${hour}-${day}`] = normalizeScheduleEntry({
+                    text,
+                    color,
+                    icon,
+                    memo,
+                    mapUrl
+                });
+            });
+
+            return normalizeAppState({
+                dates: payload.d,
+                schedule
+            });
+        };
+
+        const buildShareUrl = (encodedState) => {
+            const url = new URL(window.location.href);
+            url.searchParams.set(SHARE_PARAM_KEY, encodedState);
+            url.hash = '';
+            return url.toString();
+        };
+
+        const replaceUrlWithBasePage = () => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete(SHARE_PARAM_KEY);
+            url.hash = '';
+            window.history.replaceState({}, '', url.toString());
+        };
+
+        const syncUrlToCurrentState = () => {
+            if (!appState.dates.length) {
+                replaceUrlWithBasePage();
+                return '';
+            }
+
+            const shareUrl = buildShareUrl(serializeShareState(appState));
+            window.history.replaceState({}, '', shareUrl);
+            return shareUrl;
+        };
+
+        const looksLikeHtml = (value) => /<(?:!doctype|html|table|div)\b/i.test(value);
+
+        const extractSharedStateInput = (value) => {
+            if (!value) {
+                throw new Error('붙여넣은 링크가 없습니다.');
+            }
+
+            if (looksLikeHtml(value)) {
+                return {type: 'html', value};
+            }
+
+            const trimmedValue = value.trim();
+            const candidates = [trimmedValue];
+
+            if (!/^https?:\/\//i.test(trimmedValue)) {
+                candidates.push(`${window.location.origin}${trimmedValue.startsWith('/') ? '' : '/'}${trimmedValue}`);
+            }
+
+            for (const candidate of candidates) {
+                try {
+                    const parsedUrl = new URL(candidate);
+                    const paramValue = parsedUrl.searchParams.get(SHARE_PARAM_KEY);
+                    if (paramValue) {
+                        return {type: 'link', value: paramValue};
+                    }
+                } catch (error) {
+                    // URL이 아니면 아래 토큰 검사로 진행
+                }
+            }
+
+            if (trimmedValue.startsWith(`${SHARE_PARAM_KEY}=`)) {
+                return {type: 'link', value: trimmedValue.slice(SHARE_PARAM_KEY.length + 1)};
+            }
+
+            return {type: 'link', value: trimmedValue};
+        };
+
+        const loadStateFromSharedInput = (value) => {
+            const parsedInput = extractSharedStateInput(value);
+            return parsedInput.type === 'html'
+                ? parseHTMLToState(parsedInput.value)
+                : deserializeShareState(parsedInput.value);
+        };
 
         function rgbToHex(rgb) {
             if (!rgb || !rgb.includes('rgb')) return rgb;
@@ -700,7 +922,7 @@
             });
 
             if (newAppState.dates.length === 0) throw new Error('HTML 헤더에서 유효한 날짜를 분석할 수 없습니다.');
-            return newAppState;
+            return normalizeAppState(newAppState);
         }
 
         // --- 이벤트 리스너 ---
@@ -709,31 +931,27 @@
             if (savedState) {
                 appState = savedState;
                 createTable();
-                loadConfirmModal.classList.remove('visible');
-                loadConfirmModal.classList.add('hidden');
-                container.classList.remove('hidden');
+                replaceUrlWithBasePage();
+                showPlanner();
             }
         });
 
         document.getElementById('load-cancel-btn').addEventListener('click', () => {
             clearSavedState();
-            loadConfirmModal.classList.remove('visible');
-            loadConfirmModal.classList.add('hidden');
-            choiceScreen.classList.remove('hidden');
-            choiceScreen.classList.add('visible');
+            replaceUrlWithBasePage();
+            hideOverlay(loadConfirmModal);
+            showOverlay(choiceScreen);
         });
 
         document.getElementById('choice-new-planner-btn').addEventListener('click', () => {
-            choiceScreen.classList.remove('visible');
-            choiceScreen.classList.add('hidden');
+            replaceUrlWithBasePage();
+            hideOverlay(choiceScreen);
             startDatePicker.value = getLocalDateString(new Date());
-            startDateModal.classList.remove('hidden');
-            startDateModal.classList.add('visible');
+            showOverlay(startDateModal);
         });
 
         document.getElementById('choice-open-html-btn').addEventListener('click', () => {
-            choiceScreen.classList.remove('visible');
-            choiceScreen.classList.add('hidden');
+            hideOverlay(choiceScreen);
             document.getElementById('open-html-btn').click();
         });
 
@@ -754,15 +972,14 @@
             const date = new Date(startDate + 'T00:00:00');
             appState.dates = [{
                 day: '1일차',
-                date: `${date.getMonth() + 1}/${date.getDate()} (${['일', '월', '화', '수', '목', '금', '토'][date.getDay()]})`,
+                date: `${date.getMonth() + 1}/${date.getDate()} (${DAY_NAMES[date.getDay()]})`,
                 fullDate: getLocalDateString(date)
             }];
             appState.schedule = {};
             createTable();
             saveState();
-            startDateModal.classList.remove('visible');
-            startDateModal.classList.add('hidden');
-            container.classList.remove('hidden');
+            replaceUrlWithBasePage();
+            showPlanner();
         });
 
         addDayBtn.addEventListener('click', () => {
@@ -772,7 +989,7 @@
             lastDate.setDate(lastDate.getDate() + 1);
             const newDay = {
                 day: `${appState.dates.length + 1}일차`,
-                date: `${lastDate.getMonth() + 1}/${lastDate.getDate()} (${['일', '월', '화', '수', '목', '금', '토'][lastDate.getDay()]})`,
+                date: `${lastDate.getMonth() + 1}/${lastDate.getDate()} (${DAY_NAMES[lastDate.getDay()]})`,
                 fullDate: getLocalDateString(lastDate)
             };
             appState.dates.push(newDay);
@@ -868,27 +1085,28 @@
 
         document.getElementById('open-html-btn').addEventListener('click', () => {
             ioModal.classList.add('visible');
-            ioModalTitle.textContent = 'HTML 열기';
-            ioModalDescription.textContent = '이전에 내보낸 HTML 코드를 아래에 붙여넣고 버튼을 눌러주세요.';
+            ioModalTitle.textContent = '공유 링크 열기';
+            ioModalDescription.textContent = '공유 링크를 붙여넣어 열어주세요. 이전 HTML 코드도 그대로 불러올 수 있습니다.';
             ioTextarea.value = '';
             ioTextarea.readOnly = false;
-            ioActionBtn.textContent = '붙여넣은 HTML 일정으로 열기';
+            ioTextarea.placeholder = 'https://minwoo19930301.github.io/tour-schedular/?plan=...';
+            ioActionBtn.textContent = '붙여넣은 일정 열기';
             ioActionBtn.onclick = () => {
-                const html = ioTextarea.value;
-                if (!html) {
-                    alert('붙여넣을 HTML 코드가 없습니다.');
+                const sharedInput = ioTextarea.value.trim();
+                if (!sharedInput) {
+                    alert('붙여넣을 링크가 없습니다.');
                     return;
                 }
                 try {
-                    appState = parseHTMLToState(html);
+                    appState = loadStateFromSharedInput(sharedInput);
                     createTable();
                     saveState();
+                    syncUrlToCurrentState();
                     ioModal.classList.remove('visible');
-                    container.classList.remove('hidden');
-                    startDateModal.classList.add('hidden');
+                    showPlanner();
                 } catch (e) {
-                    console.error("HTML Parsing Error:", e);
-                    alert('HTML을 분석하는 데 실패했습니다. 코드 형식을 확인해주세요.\n' + e.message);
+                    console.error('Shared Plan Parsing Error:', e);
+                    alert('공유 링크를 불러오는 데 실패했습니다.\n' + e.message);
                 }
             };
         });
@@ -900,80 +1118,26 @@
             }
         });
 
-        // 기존의 'export-btn' 이벤트 리스너를 이 코드로 완전히 교체하세요.
         document.getElementById('export-btn').addEventListener('click', () => {
-            // 1. 현재 스케줄 컨테이너를 복제하여 작업합니다.
-            const containerClone = scheduleContainer.cloneNode(true);
+            if (appState.dates.length === 0) {
+                alert('먼저 일정을 만들어주세요.');
+                return;
+            }
 
-            // 2. 복제된 HTML에서 불필요한 클래스나 ID를 제거하여 깨끗하게 만듭니다.
-            containerClone.querySelectorAll('td, th').forEach(el => {
-                el.removeAttribute('id');
-                el.classList.remove('cell-selected', 'drag-over');
-            });
-
-            // 3. 각 일정 요소에 메모와 지도 URL 데이터를 data-* 속성으로 확실하게 심어줍니다.
-            containerClone.querySelectorAll('.highlight-cell').forEach(el => {
-                const cellId = el.dataset.cellId;
-                const data = appState.schedule[cellId];
-                if (cellId && data) {
-                    // data-memo 속성 추가
-                    if (data.memo) {
-                        el.setAttribute('data-memo', data.memo);
-                    }
-                    // data-map-url 속성 추가 (가장 중요한 부분)
-                    if (data.mapUrl) {
-                        el.setAttribute('data-map-url', data.mapUrl);
-                    }
-                }
-            });
-
-            // 4. 최종적으로 내보낼 HTML 문서를 생성합니다.
-            // 앱의 주요 스타일을 그대로 포함하여 디자인이 깨지지 않도록 합니다.
-            const finalHTML = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>여행 일정</title>
-    <script src="https://cdn.tailwindcss.com"><\/script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f5f5f4; color: #1c1917; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; padding: 1rem; box-sizing: border-box; }
-        .container { background-color: #fff; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 1.5rem; width: 100%; max-width: 1400px; }
-        #schedule-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; margin-bottom: 2rem; }
-        table:last-child { margin-bottom: 0; }
-        th, td { padding: 8px 4px; text-align: center; border: 1px solid #e7e5e4; font-size: .75rem; vertical-align: middle; }
-        th { background-color: #fafaf9; font-weight: 600; color: #57534e; position: sticky; top: 0; z-index: 10; font-size: .7rem; white-space: nowrap; }
-        td:first-child { font-weight: 700; color: #78716c; }
-        tbody {
-            background-image: linear-gradient( to bottom, rgba(156, 163, 175, 0.15) 0%, rgba(190, 207, 250, 0.26) 20%, rgba(227, 249, 255, 0.3) 35%, rgba(255, 235, 179, 0.2) 75%, rgba(190, 207, 250, 0.35) 90%, rgba(156, 163, 175, 0.15) 100% );
-        }
-        tbody td { color: #374151; }
-        .highlight-cell { font-weight: 600; border-radius: 4px; padding: 4px 6px; display: inline-block; font-size: .7rem; color: #1c1917; white-space: normal; line-height: 1.3; vertical-align: middle; }
-        .transport-icon { font-size: 1rem; line-height: 1; color: #78716c; vertical-align: middle; margin-right: 4px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1 style="font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 1.5rem;">여행 일정</h1>
-        <div id="schedule-container">
-            ${containerClone.innerHTML}
-        </div>
-    </div>
-</body>
-</html>`;
-
-            // 5. 생성된 HTML을 모달 창에 띄워줍니다.
+            const shareUrl = syncUrlToCurrentState();
             ioModal.classList.add('visible');
-            ioModalTitle.textContent = 'HTML 내보내기';
-            ioModalDescription.textContent = '아래 코드를 복사하여 파일에 저장하거나, 나중에 다시 열 때 사용하세요.';
-            ioTextarea.value = finalHTML;
+            ioModalTitle.textContent = '공유 링크';
+            ioModalDescription.textContent = '아래 링크를 복사해서 그대로 공유하면 같은 일정이 열립니다.';
+            ioTextarea.value = shareUrl;
             ioTextarea.readOnly = true;
-            ioActionBtn.textContent = '클립보드에 복사';
+            ioTextarea.placeholder = '';
+            ioActionBtn.textContent = '링크 복사';
             ioActionBtn.onclick = () => {
                 ioTextarea.select();
-                navigator.clipboard.writeText(ioTextarea.value).then(() => alert('코드가 클립보드에 복사되었습니다!'), () => alert('복사에 실패했습니다.'));
+                navigator.clipboard.writeText(ioTextarea.value).then(
+                    () => alert('공유 링크가 클립보드에 복사되었습니다!'),
+                    () => alert('링크 복사에 실패했습니다.')
+                );
             };
         });
 
@@ -1058,20 +1222,34 @@
 
         const initializeApp = () => {
             createColorPicker();
+            const sharedState = new URL(window.location.href).searchParams.get(SHARE_PARAM_KEY);
+            if (sharedState) {
+                try {
+                    appState = deserializeShareState(sharedState);
+                    createTable();
+                    saveState();
+                    syncUrlToCurrentState();
+                    showPlanner();
+                    return;
+                } catch (e) {
+                    console.error('공유 링크 로딩 실패:', e);
+                    replaceUrlWithBasePage();
+                    alert('공유 링크를 읽지 못했습니다. 기본 화면으로 이동합니다.\n' + e.message);
+                }
+            }
+
             try {
                 const savedState = loadState();
                 if (savedState && savedState.dates && savedState.dates.length > 0) {
-                    loadConfirmModal.classList.remove('hidden');
-                    loadConfirmModal.classList.add('visible');
+                    showOverlay(loadConfirmModal);
                 } else {
-                    choiceScreen.classList.remove('hidden');
-                    choiceScreen.classList.add('visible');
+                    showOverlay(choiceScreen);
                 }
             } catch (e) {
-                console.error("저장 데이터 로딩 실패:", e);
+                console.error('초기 데이터 로딩 실패:', e);
                 clearSavedState();
-                choiceScreen.classList.remove('hidden');
-                choiceScreen.classList.add('visible');
+                replaceUrlWithBasePage();
+                showOverlay(choiceScreen);
             }
         };
 
