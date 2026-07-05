@@ -1,5 +1,8 @@
 # Tour Schedular
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://minwoo19930301.github.io/tour-schedular/)
+
+
 시간표 형태로 여행 일정을 짜고, 링크 하나로 그대로 공유할 수 있는 정적 웹앱입니다. 모바일 터치 편집과 드래그 이동까지 지원해서 여행 일정표를 빠르게 정리하기 좋습니다.
 
 ## 링크
