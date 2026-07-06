@@ -46,8 +46,15 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory "/Users/minwokim/Docume
 - GitHub Pages: [https://minwoo19930301.github.io/tour-time-planner/](https://minwoo19930301.github.io/tour-time-planner/)
 - 별도 빌드 과정 없이 정적 파일 배포
 
-## 구현 메모
+## 구현 메모 및 서브 상세 설명서
 
 - 단일 `index.html`에 UI와 로직이 함께 들어 있습니다.
 - `Tailwind CSS CDN`을 사용합니다.
 - 모바일 드래그 처리를 위해 `DragDropTouch`를 사용합니다.
+- 📘 **[시스템 아키텍처 및 상세 개발자 매뉴얼](docs/MANUAL.md)**: 매트릭스 스케줄러 아키텍처, 터치 드래그 연동 및 데이터 공유 프로토콜
+
+## 📄 라이선스 (License)
+
+본 프로젝트는 **[CC BY-NC 4.0 (크리에이티브 커먼즈 저작자표시-비영리 4.0)](LICENSE)** 라이선스에 따라 개인 및 비영리 목적으로 자유롭게 사용하실 수 있습니다.
+
+> ⚠️ **상업적 이용 안내**: 기업 사용, 유료 서비스 연동, 외주 개발 등 상업적 목적으로 활용 시 저작권자(`contact@ai-ing.org`)와 **별도의 상업 라이선스 계약**을 체결해야 합니다.
